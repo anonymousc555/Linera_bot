@@ -5,6 +5,13 @@ export interface Message {
   timestamp: number;
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+}
+
 export interface ApiConfig {
   apiKey: string;
   agentId: string;

@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu, Plus, Settings } from 'lucide-react';
+import { Send, Menu, Plus, Settings, MessageSquare, Trash2 } from 'lucide-react';
 import ChatMessage from './components/ChatMessage';
 import ThemeToggle from './components/ThemeToggle';
 import SettingsModal from './components/SettingsModal';
 import { sendMessageToApi } from './services/api';
-import { Message, ApiConfig } from './types';
+import { Message, ApiConfig, ChatSession } from './types';
 
 // Default configuration from prompt
 const DEFAULT_CONFIG: ApiConfig = {
@@ -25,19 +25,34 @@ function generateId() {
 }
 
 export default function App() {
-  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
+  // Config state
+  const [apiConfig, setApiConfig] = useState<ApiConfig>(DEFAULT_CONFIG);
+  const [userId] = useState(() => `user_${generateId()}`);
+  
+  // Session State - Initialize with one session
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    const initialSessionId = `session_${generateId()}`;
+    return [{
+      id: initialSessionId,
+      title: 'New Chat',
+      messages: [WELCOME_MESSAGE],
+      createdAt: Date.now()
+    }];
+  });
+  const [currentSessionId, setCurrentSessionId] = useState<string>(() => sessions[0].id);
+
+  // UI State
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiConfig, setApiConfig] = useState<ApiConfig>(DEFAULT_CONFIG);
-  
-  // Session management
-  const [userId] = useState(() => `user_${generateId()}`);
-  const [sessionId, setSessionId] = useState(() => `session_${generateId()}`);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Derived state for current messages
+  const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+  const messages = currentSession.messages;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,12 +60,17 @@ export default function App() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, currentSessionId]);
 
-  // Focus input on load
+  // Focus input on load or session switch
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  }, [currentSessionId]);
+
+  // Helper to update the active session safely
+  const updateCurrentSession = (updater: (session: ChatSession) => ChatSession) => {
+    setSessions(prev => prev.map(s => s.id === currentSessionId ? updater(s) : s));
+  };
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -63,7 +83,19 @@ export default function App() {
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // Auto-title logic: If it's the first real user message, update title
+    const isFirstUserMessage = messages.length === 1 && messages[0].id === 'welcome';
+    const newTitle = isFirstUserMessage 
+      ? (input.length > 30 ? input.substring(0, 30) + '...' : input)
+      : currentSession.title;
+
+    // Optimistic update
+    updateCurrentSession(session => ({
+      ...session,
+      title: newTitle === 'New Chat' ? session.title : newTitle, 
+      messages: [...session.messages, userMessage]
+    }));
+
     setInput('');
     setIsLoading(true);
 
@@ -71,7 +103,7 @@ export default function App() {
       const responseText = await sendMessageToApi(
         userMessage.content,
         userId,
-        sessionId,
+        currentSessionId,
         apiConfig
       );
 
@@ -82,7 +114,11 @@ export default function App() {
         timestamp: Date.now(),
       };
 
-      setMessages((prev) => [...prev, botMessage]);
+      updateCurrentSession(session => ({
+        ...session,
+        messages: [...session.messages, botMessage]
+      }));
+
     } catch (error) {
       const errorMessage: Message = {
         id: generateId(),
@@ -90,17 +126,57 @@ export default function App() {
         content: 'Sorry, I encountered an error connecting to the Linera AI server. Please check your connection or try again later.',
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      updateCurrentSession(session => ({
+        ...session,
+        messages: [...session.messages, errorMessage]
+      }));
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleNewChat = () => {
-    setSessionId(`session_${generateId()}`);
-    setMessages([WELCOME_MESSAGE]);
-    setIsSidebarOpen(false); // Close sidebar on mobile after selection
+    const newSessionId = `session_${generateId()}`;
+    const newSession: ChatSession = {
+      id: newSessionId,
+      title: 'New Chat',
+      messages: [WELCOME_MESSAGE],
+      createdAt: Date.now()
+    };
+    
+    setSessions(prev => [newSession, ...prev]);
+    setCurrentSessionId(newSessionId);
+    setIsSidebarOpen(false); // Close sidebar on mobile
     inputRef.current?.focus();
+  };
+
+  const switchSession = (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+    setIsSidebarOpen(false);
+  };
+
+  const deleteSession = (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation(); // Prevent clicking the container
+    
+    const newSessions = sessions.filter(s => s.id !== sessionId);
+    
+    if (newSessions.length === 0) {
+      // If we deleted the last one, create a fresh new chat
+      const newId = `session_${generateId()}`;
+      setSessions([{
+        id: newId,
+        title: 'New Chat',
+        messages: [WELCOME_MESSAGE],
+        createdAt: Date.now()
+      }]);
+      setCurrentSessionId(newId);
+    } else {
+      setSessions(newSessions);
+      // If we deleted the active one, switch to the first available
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(newSessions[0].id);
+      }
+    }
   };
 
   return (
@@ -113,7 +189,7 @@ export default function App() {
         />
       )}
 
-      {/* Sidebar - Gemini Style */}
+      {/* Sidebar */}
       <aside 
         className={`
           fixed md:relative z-30 flex flex-col h-full w-[280px] flex-shrink-0
@@ -133,13 +209,40 @@ export default function App() {
           </button>
         </div>
 
-        {/* Sidebar Content (Spacer for now) */}
-        <div className="flex-1 overflow-y-auto px-4 py-2">
-           <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
-             Session info
+        {/* History List */}
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+           <div className="px-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+             Recent
            </div>
-           <div className="text-sm text-gray-600 dark:text-gray-400">
-             Session ID: <span className="font-mono text-xs opacity-70 block truncate">{sessionId}</span>
+           <div className="space-y-1">
+             {sessions.map((session) => (
+               <div
+                 key={session.id}
+                 onClick={() => switchSession(session.id)}
+                 className={`
+                   group flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer text-sm transition-colors relative
+                   ${currentSessionId === session.id 
+                     ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-900 dark:text-primary-100' 
+                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800'}
+                 `}
+               >
+                 <MessageSquare size={16} className={currentSessionId === session.id ? 'text-primary-600' : 'text-gray-400'} />
+                 <span className="truncate flex-1 pr-6">{session.title}</span>
+                 
+                 {/* Delete Button (visible on hover or focus) */}
+                 <button 
+                   onClick={(e) => deleteSession(e, session.id)}
+                   className={`
+                     absolute right-2 p-1.5 rounded-md text-gray-400 
+                     hover:text-red-500 hover:bg-gray-200 dark:hover:bg-gray-700
+                     md:opacity-0 md:group-hover:opacity-100 transition-opacity
+                   `}
+                   title="Delete chat"
+                 >
+                   <Trash2 size={14} />
+                 </button>
+               </div>
+             ))}
            </div>
         </div>
 
