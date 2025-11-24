@@ -1,19 +1,18 @@
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
   timestamp: number;
 }
 
-export interface ChatSession {
-  id: string;
-  messages: Message[];
-}
-
 export interface ApiConfig {
-  baseUrl: string;
-  apiKey?: string;
-  agentId?: string;
+  apiKey: string;
+  agentId: string;
 }
 
-export type ThemeMode = 'light' | 'dark';
+export interface ChatResponse {
+  response?: string;
+  message?: string;
+  // Lyzr sometimes returns strictly text or a nested object depending on the agent config
+  [key: string]: any; 
+}

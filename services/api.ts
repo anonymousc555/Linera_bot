@@ -1,43 +1,23 @@
-import { ApiConfig } from '../types';
+import { ApiConfig, ChatResponse } from '../types';
 
-/**
- * Sends a message to the Lyzr Agent API.
- * 
- * Endpoint: POST /v3/inference/chat/
- * Headers: 
- *  - Content-Type: application/json
- *  - x-api-key: <api_key>
- * 
- * Body:
- * {
- *   "user_id": string,
- *   "agent_id": string,
- *   "session_id": string,
- *   "message": string
- * }
- */
+const BASE_URL = 'https://agent-prod.studio.lyzr.ai/v3/inference/chat/';
+
 export const sendMessageToApi = async (
   message: string,
-  config: ApiConfig,
+  userId: string,
   sessionId: string,
-  userId: string
+  config: ApiConfig
 ): Promise<string> => {
-  const { baseUrl, apiKey, agentId } = config;
-
-  if (!baseUrl || !apiKey || !agentId) {
-    throw new Error("Missing API configuration (URL, Key, or Agent ID)");
-  }
-
   try {
-    const response = await fetch(baseUrl, {
+    const response = await fetch(BASE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': config.apiKey,
       },
       body: JSON.stringify({
         user_id: userId,
-        agent_id: agentId,
+        agent_id: config.agentId,
         session_id: sessionId,
         message: message,
       }),
@@ -45,15 +25,16 @@ export const sendMessageToApi = async (
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json();
+    const data: ChatResponse = await response.json();
     
-    // Lyzr response usually contains a 'response' field with the text
-    return data.response || JSON.stringify(data);
+    // Handle Lyzr response format
+    // Sometimes it returns { "response": "text" } or just the text if configured differently
+    return data.response || data.message || JSON.stringify(data);
   } catch (error) {
-    console.error("Failed to send message", error);
+    console.error('Error sending message:', error);
     throw error;
   }
 };

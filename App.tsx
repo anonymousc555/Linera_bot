@@ -1,242 +1,239 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, PlusCircle, Settings, MessageSquare, Bot } from 'lucide-react';
-import { ThemeToggle } from './components/ThemeToggle';
-import { ChatMessage } from './components/ChatMessage';
-import { SettingsModal } from './components/SettingsModal';
+import { Send, Menu, Plus, Settings } from 'lucide-react';
+import ChatMessage from './components/ChatMessage';
+import ThemeToggle from './components/ThemeToggle';
+import SettingsModal from './components/SettingsModal';
 import { sendMessageToApi } from './services/api';
-import { Message, ApiConfig, ThemeMode } from './types';
+import { Message, ApiConfig } from './types';
 
-// Default configuration based on the provided requirements
+// Default configuration from prompt
 const DEFAULT_CONFIG: ApiConfig = {
-  baseUrl: 'https://agent-prod.studio.lyzr.ai/v3/inference/chat/',
   apiKey: 'sk-default-arGdBKzYMu1pzGzjIdEpldMrGhqGhEFx',
-  agentId: '692067259f8444041740065c'
+  agentId: '692067259f8444041740065c',
 };
 
+// Welcome message from prompt
+const WELCOME_MESSAGE: Message = {
+  id: 'welcome',
+  role: 'assistant',
+  content: "**Hello! I’m your Linera Ecosystem Assistant.**\n\nI can answer questions about the protocol, guide you through the whitepaper, or help you write and debug Linera smart contracts in Rust.",
+  timestamp: Date.now(),
+};
+
+function generateId() {
+  return Math.random().toString(36).substring(2, 15);
+}
+
 export default function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
+  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [config, setConfig] = useState<ApiConfig>(DEFAULT_CONFIG);
-  const [theme, setTheme] = useState<ThemeMode>('light');
+  const [apiConfig, setApiConfig] = useState<ApiConfig>(DEFAULT_CONFIG);
   
   // Session management
-  const [sessionId, setSessionId] = useState<string>(() => crypto.randomUUID());
-  // Generate a random user ID for this browser session instance
-  const [userId] = useState<string>(() => `guest_${Math.floor(Math.random() * 1000000)}@linera.user`);
-
+  const [userId] = useState(() => `user_${generateId()}`);
+  const [sessionId, setSessionId] = useState(() => `session_${generateId()}`);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize theme
-  useEffect(() => {
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-    }
-  }, []);
-
-  // Apply theme to html element
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
-
-  // Scroll to bottom on new message
-  useEffect(() => {
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
   }, [messages]);
 
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
+  // Focus input on load
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
-  const handleNewChat = () => {
-    if (messages.length > 0 && window.confirm("Start a new chat? This will clear current history.")) {
-      setMessages([]);
-      setInputValue('');
-      setSessionId(crypto.randomUUID()); // Rotate session ID
-    }
-  };
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!input.trim() || isLoading) return;
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isLoading) return;
-
-    const userMsg: Message = {
-      id: Date.now().toString(),
+    const userMessage: Message = {
+      id: generateId(),
       role: 'user',
-      content: inputValue,
-      timestamp: Date.now()
+      content: input,
+      timestamp: Date.now(),
     };
 
-    setMessages(prev => [...prev, userMsg]);
-    setInputValue('');
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
     setIsLoading(true);
 
     try {
-      const responseText = await sendMessageToApi(userMsg.content, config, sessionId, userId);
-      
-      const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
+      const responseText = await sendMessageToApi(
+        userMessage.content,
+        userId,
+        sessionId,
+        apiConfig
+      );
+
+      const botMessage: Message = {
+        id: generateId(),
         role: 'assistant',
         content: responseText,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
-      setMessages(prev => [...prev, botMsg]);
+      setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
-      const errorMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'system',
-        content: `Error: Could not connect to the Linera AI. ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: Date.now()
+      const errorMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: 'Sorry, I encountered an error connecting to the Linera AI server. Please check your connection or try again later.',
+        timestamp: Date.now(),
       };
-      setMessages(prev => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
+  const handleNewChat = () => {
+    setSessionId(`session_${generateId()}`);
+    setMessages([WELCOME_MESSAGE]);
+    setIsSidebarOpen(false); // Close sidebar on mobile after selection
+    inputRef.current?.focus();
   };
 
   return (
-    <div className="flex h-screen flex-col bg-white dark:bg-zinc-950 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200">
-      
-      {/* Header */}
-      <header className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-gray-100 dark:border-zinc-800">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center shadow-lg shadow-primary-500/30">
-            <Bot className="text-white w-5 h-5" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
-            Linera <span className="text-primary-600">AI</span>
-          </h1>
-        </div>
-        
-        <div className="flex items-center gap-2">
-           <button 
-            onClick={handleNewChat}
-            className="p-2 text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 transition-colors rounded-full hover:bg-primary-50 dark:hover:bg-primary-900/20"
-            title="New Chat"
-          >
-            <PlusCircle className="w-5 h-5" />
-          </button>
-          
-          <ThemeToggle mode={theme} onToggle={toggleTheme} />
-          
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 text-gray-500 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400 transition-colors rounded-full hover:bg-primary-50 dark:hover:bg-primary-900/20"
-            title="Settings"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
+    <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden font-sans">
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-      {/* Chat Area */}
-      <main className="flex-1 overflow-y-auto px-4 py-8 sm:px-6 lg:px-8 custom-scrollbar">
-        <div className="max-w-3xl mx-auto">
-          {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6 opacity-80 animate-fade-in">
-              <div className="relative">
-                <div className="absolute inset-0 bg-primary-500 blur-2xl opacity-20 rounded-full"></div>
-                <div className="relative w-20 h-20 bg-gradient-to-br from-primary-500 to-primary-700 text-white rounded-2xl flex items-center justify-center shadow-xl">
-                  <Bot className="w-10 h-10" />
+      {/* Sidebar - Gemini Style */}
+      <aside 
+        className={`
+          fixed md:relative z-30 flex flex-col h-full w-[280px] flex-shrink-0
+          bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800
+          transition-transform duration-300 ease-in-out
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
+        <div className="p-4 flex-none">
+          {/* New Chat Button */}
+          <button
+            onClick={handleNewChat}
+            className="flex items-center gap-3 w-full px-4 py-3 bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 rounded-full transition-colors text-sm font-medium text-gray-700 dark:text-gray-200"
+          >
+            <Plus size={20} className="text-primary-600" />
+            <span className="truncate">New chat</span>
+          </button>
+        </div>
+
+        {/* Sidebar Content (Spacer for now) */}
+        <div className="flex-1 overflow-y-auto px-4 py-2">
+           <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+             Session info
+           </div>
+           <div className="text-sm text-gray-600 dark:text-gray-400">
+             Session ID: <span className="font-mono text-xs opacity-70 block truncate">{sessionId}</span>
+           </div>
+        </div>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2">
+           <button 
+             onClick={() => setIsSettingsOpen(true)}
+             className="p-2 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors"
+             title="Settings"
+           >
+             <Settings size={20} />
+           </button>
+           <ThemeToggle />
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col h-full w-full relative">
+        {/* Header (Mobile Only / Branding) */}
+        <header className="flex-none h-14 md:h-16 flex items-center justify-between px-4 border-b border-gray-100 dark:border-gray-800 md:border-none">
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300"
+          >
+            <Menu size={24} />
+          </button>
+          
+          <div className="flex items-center gap-2 mx-auto md:ml-0">
+             <span className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                Linera AI 
+                <span className="text-xs px-2 py-0.5 rounded-full bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400 font-medium">
+                  Beta
+                </span>
+             </span>
+          </div>
+          
+          <div className="w-8 md:hidden" /> {/* Spacer for centering */}
+        </header>
+
+        {/* Chat Area */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth">
+          <div className="max-w-3xl mx-auto space-y-6">
+            {messages.map((msg) => (
+              <ChatMessage key={msg.id} message={msg} />
+            ))}
+            {isLoading && (
+              <div className="flex gap-4 animate-pulse">
+                <div className="w-8 h-8 rounded-full bg-primary-600/50 flex-shrink-0" />
+                <div className="space-y-2 flex-1 pt-1">
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
                 </div>
               </div>
-              <div className="space-y-2 max-w-lg">
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-                  Hello! I’m your Linera Ecosystem Assistant.
-                </h2>
-                <p className="text-lg text-gray-600 dark:text-gray-300 leading-relaxed">
-                  I can answer questions about the protocol, guide you through the whitepaper, or help you write and debug Linera smart contracts in Rust.
-                </p>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg mt-8">
-                 {[
-                   "How does Linera achieve scalability?",
-                   "Show me a 'Hello World' contract in Rust",
-                   "Explain the FastPay consensus",
-                   "Help me debug a Wasm execution error"
-                 ].map((suggestion, i) => (
-                   <button 
-                    key={i}
-                    onClick={() => setInputValue(suggestion)}
-                    className="text-sm p-3 rounded-xl border border-gray-200 dark:border-zinc-800 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 text-left transition-all text-gray-600 dark:text-gray-400 hover:text-primary-700 dark:hover:text-primary-400"
-                   >
-                     {suggestion}
-                   </button>
-                 ))}
-              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* Input Area */}
+        <div className="flex-none p-4 w-full bg-white dark:bg-gray-950">
+          <div className="max-w-3xl mx-auto">
+            <form onSubmit={handleSendMessage} className="relative flex items-center">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about Linera protocol, smart contracts..."
+                className="w-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-full py-4 pl-6 pr-14 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-shadow shadow-sm"
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="absolute right-2 p-2 bg-primary-600 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary-700 transition-all shadow-md"
+              >
+                <Send size={20} />
+              </button>
+            </form>
+            <div className="text-center mt-2">
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Linera AI can make mistakes. Check important info.
+              </p>
             </div>
-          ) : (
-            <>
-              {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} />
-              ))}
-              {isLoading && (
-                <div className="flex justify-start mb-6 animate-pulse">
-                   <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-gray-200 dark:bg-zinc-800 rounded-full flex items-center justify-center">
-                        <Bot size={16} className="text-gray-400" />
-                      </div>
-                      <div className="bg-gray-100 dark:bg-zinc-800 px-4 py-3 rounded-2xl rounded-tl-sm border border-transparent dark:border-zinc-700">
-                        <div className="flex gap-1">
-                          <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms'}}></span>
-                          <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms'}}></span>
-                          <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms'}}></span>
-                        </div>
-                      </div>
-                   </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </>
-          )}
+          </div>
         </div>
       </main>
 
-      {/* Input Area */}
-      <div className="border-t border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 sticky bottom-0 z-20">
-        <div className="max-w-3xl mx-auto relative">
-          <textarea
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about Linera protocol or Rust contracts..."
-            className="w-full pl-5 pr-14 py-4 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all resize-none shadow-sm text-gray-800 dark:text-gray-100 placeholder-gray-400"
-            rows={1}
-            style={{ minHeight: '60px', maxHeight: '200px' }}
-          />
-          <button
-            onClick={handleSendMessage}
-            disabled={!inputValue.trim() || isLoading}
-            className="absolute right-3 bottom-3 p-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 disabled:hover:bg-primary-600 transition-all shadow-md shadow-primary-600/20"
-          >
-            <Send size={20} />
-          </button>
-        </div>
-        <div className="text-center mt-2">
-           <p className="text-[10px] text-gray-400 dark:text-zinc-600">
-             Session ID: {sessionId.slice(0, 8)}... • Powered by Lyzr
-           </p>
-        </div>
-      </div>
-
+      {/* Settings Modal */}
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)}
-        config={config}
-        onSave={setConfig}
+        config={apiConfig}
+        onSave={setApiConfig}
       />
     </div>
   );
